@@ -1,0 +1,84 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: 予報の取得範囲
+
+指定タイムゾーンの今日の9時・12時・18時の3点を、設定地点の予報から取り出さなければならない (SHALL)。気温は摂氏で取得し、小数は切り捨てた整数として扱う。
+
+#### Scenario: 今日の予報に絞る
+
+- **WHEN** 5日分の予報が返る
+- **THEN** 今日の9時・12時・18時の3件だけが冊子に使われる
+
+#### Scenario: タイムゾーンで時刻が変わる
+
+- **WHEN** `--tz Asia/Tokyo` で生成する
+- **THEN** 9時・12時・18時は東京時間の値になる
+
+#### Scenario: 気温の小数を切り捨てる
+
+- **WHEN** 予報が 12.8 度を返す
+- **THEN** 枠には「12º」と印刷される
+
+### Requirement: 天気の印刷内容
+
+天気の枠には「WEATHER」の見出し、地点名、指定タイムゾーンでの今日の日付を印刷し、時間帯ごとに MORNING・AFTERNOON・EVENING の見出し、天気のアイコン、気温、天気の種類を並べなければならない (SHALL)。気温は「12º」のように整数と度記号で印刷し、単位の文字は付けない。枠の隅に Open-Meteo の帰属を小さく印刷する。
+
+#### Scenario: 天気を印刷する
+
+- **WHEN** 天気を有効にして生成する
+- **THEN** 枠に地点と日付、MORNING・AFTERNOON・EVENING それぞれの気温と天気、Open-Meteo の帰属が印刷される
+
+#### Scenario: 天気の種類が英語のまま
+
+- **WHEN** 天気が「Clouds」と返る
+- **THEN** 枠には「Clouds」とそのまま印刷される
+
+### Requirement: 予報が取れないとき
+
+予報の取得に失敗した場合、同じ地点で前に取得した予報をそのまま使い、冊子の生成を止めない (SHALL)。一度も取得できていない場合は、見出し・地点・日付だけを印刷する。地点を変えた場合は前の地点の予報を使わない。
+
+#### Scenario: 通信に失敗する
+
+- **WHEN** 予報の取得が失敗し、同じ地点の以前の予報が残っている
+- **THEN** 以前の予報で冊子が生成される
+
+#### Scenario: 予報が一度も取れない
+
+- **WHEN** 予報の取得が一度も成功しないまま生成する
+- **THEN** 天気の枠には見出し・地点・日付だけが印刷される
+
+#### Scenario: 地点を変えた
+
+- **WHEN** 設定の緯度経度を別の場所に変え、その地点の予報が取れない
+- **THEN** 前の地点の予報は使われず、見出し・地点・日付だけが印刷される
+
+## ADDED Requirements
+
+### Requirement: 地点の指定
+
+天気を有効にした場合、設定の `[weather].latitude`、`[weather].longitude`、`[weather].label` を使い、位置情報の取得や地点検索は行わない (SHALL)。緯度経度が無い、または範囲外なら設定エラーとして終了コード2で拒否する。
+
+#### Scenario: 設定地点の天気を出す
+
+- **WHEN** `[weather]` に東京の緯度経度と `label = "Tokyo"` を書いて生成する
+- **THEN** 天気の枠に Tokyo の予報が印刷される
+
+#### Scenario: 緯度経度が無い
+
+- **WHEN** 天気を有効にしたが `[weather].latitude` を書かずに実行する
+- **THEN** 終了コード2で終わり、PDF は書き出されない
+
+#### Scenario: 範囲外の緯度
+
+- **WHEN** 緯度に 100 を書いて実行する
+- **THEN** 終了コード2で終わり、PDF は書き出されない
+
+## REMOVED Requirements
+
+### Requirement: 地点の決定
+
+**Reason**: CLI には位置情報も地点検索も無く、地点は設定で固定する。
+
+**Migration**: `[weather].latitude`、`[weather].longitude`、`[weather].label` を書く。
