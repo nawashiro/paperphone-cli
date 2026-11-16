@@ -1,0 +1,15 @@
+{
+  "trip": {
+    "locations": [
+      {"lat": 35.6812, "lon": 139.7671},
+      {"lat": 35.69, "lon": 139.70}
+    ]
+  },
+  "trips": [
+    {
+      "legs": [
+        {"shape": "_zx`cAwruqiGolFvk`@owH~s`B"}
+      ]
+    }
+  ]
+}

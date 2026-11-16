@@ -11,4 +11,4 @@
 
 CLI は `openspec`。未インストールなら `curl -fsSL https://openspec.dev/cli/install.sh | sh`（`~/.local/bin` に入る）。
 
-ビルドは `./gradlew assembleDebug`。リポジトリ直下の `keys.properties` が無いとビルドは失敗する。
+テストは `.venv/bin/pytest`、lint は `.venv/bin/ruff check src tests`、ビルドは `.venv/bin/python -m build`。venv は PyGObject を使うため `python3 -m venv --system-site-packages .venv` で作る。GNOME と Evolution Data Server の無い環境では EDS 統合を実機検証できない。
