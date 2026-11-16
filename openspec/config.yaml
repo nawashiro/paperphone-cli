@@ -5,16 +5,26 @@ context: |
   All artifacts must be written in japanese.
   Keep OpenSpec structural headings and SHALL/MUST keywords in English.
 
-  Paper Phone is an Android app that prints a personal paper booklet. The user
-  selects sources (contacts, calendar, tasks, weather, maps, photos, notes, paper
-  apps) and the app renders them into a PDF for the Android printing framework.
+  Paper Phone is a Linux CLI that prints today's personal booklet as an
+  A4-landscape PDF. The booklet has eight fixed panels (contacts, calendar,
+  tasks, photo, notes, cover, weather, paper app) and an optional rotated map
+  page. The user selects panels and sources in a TOML config, then runs
+  `paperphone` from cron or a systemd user timer.
 
-  - Kotlin, single module `app`, package `com.withgoogle.experiments.unplugged`
-  - Gradle 5.4.1 wrapper, Android Gradle Plugin 3.5.1, compileSdk/targetSdk 28, minSdk 26
-  - ktlint runs in the build (org.jlleitschuh.gradle.ktlint 8.2.0), so new Kotlin
-    code must pass ktlint
-  - `keys.properties` at the repo root supplies the Google Maps, Places, weather
-    API keys and the signing config; the build fails without it and the file is
-    never committed
-  - No test sources and no CI, so a change is verified by building the app and
-    running it on a device or emulator
+  - Python 3.12+, single package `src/paperphone/`, entry point `paperphone`
+  - Depends on the system PyGObject plus EDS typelibs (ECal, EBook,
+    EDataServer, ICalGLib), so the venv uses `--system-site-packages`
+  - WeasyPrint renders HTML/CSS; pypdf rotates the map page; Pillow handles
+    photos, map tiles, and grayscale
+  - Calendar, contacts, and VTODO tasks come from EDS sources: GNOME Online
+    Accounts ones are read-only, and `paperphone dav add` creates managed
+    CalDAV/CardDAV sources with credentials in the login keyring
+  - Weather comes from Open-Meteo; maps from OSM raster tiles plus an
+    optional Valhalla walking route. Both must degrade to a partial booklet
+  - Tests use fixtures and mocks: `.venv/bin/pytest`
+  - Lint: `.venv/bin/ruff check src tests`
+  - Build: `.venv/bin/python -m build`
+  - This development machine has no GNOME desktop or EDS. Doctor, source
+    registration, keyring, and systemd user timer runs are verified in a
+    rootless Podman GNOME/EDS container (docs/gnome-container.md); physical
+    double-sided printing and folding remain a manual check
