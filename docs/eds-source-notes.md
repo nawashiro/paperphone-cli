@@ -121,6 +121,38 @@ systemd user manager です。`user@0.service` には
 - `EBookContacts.Contact.get_const()` は GI ではポインタが int で返る。
   vCard 3.0 の文字列（`to_string(1)`）を解析する方が確実。
 
+## EDS 3.59.1 の vCard 文字列化 API（2026-11-17）
+
+EDS 3.59.1（2026-01-02）で `EBookContacts.Contact.to_string()` の形が変わった。
+
+- EDS 3.52.3（コンテナで確認）: `to_string(format)`。`1` が vCard 3.0、
+  `0` が vCard 2.1。
+- EDS 3.59.1: `to_string()` は引数を取らず、形式変換は
+  `convert_to_string(version)` に分かれた。`to_string(1)` は `TypeError` になる。
+
+`paperphone` は連絡先を vCard 文字列にしてから `UID` / `FN` / `TEL` を読む。
+引数なしの `to_string()` を呼べば新しい EDS で読めるが、3.58 以前では
+引数が必須で `TypeError` になる。そこで `to_string()` → `to_string(1)` →
+`to_string(0)` の順に試し、最初に文字列を返したものを使う。
+
+実行時に新旧を判定しない理由:
+
+- GI のメソッドは `__doc__` や `inspect.signature` の形がバインディングの
+  実装で変わり、判定に使えない。
+- typelib に EDS のバージョン番号を返す公開 API が無い。
+
+3.59 以降で `to_string()` が成功すれば `to_string(1)` は呼ばれない。3つすべて
+失敗した連絡先は空の `UID`・`FN`・`TEL` として扱い、一覧と冊子から飛ばす。
+
+確認:
+
+- EDS 3.52.3（Ubuntu 24.04 コンテナ）: Radicale の CardDAV に置いた連絡先を
+  `paperphone contacts list` で読み、UID・名前・電話番号が出ること、空行が
+  出ないことを確認。
+- EDS 3.62.1（Ubuntu tenacious のパッケージを入れたコンテナ）:
+  `to_string(self) -> str` と `convert_to_string` を確認。同じ連絡先が
+  同じ内容で読めることを確認。3.59.1 そのものはコンテナに無かった。
+
 ## 1.3 WeasyPrint の描画（実施済み）
 
 確認したこと:

@@ -43,7 +43,9 @@ def _selected_contacts(config: Config, registry, credentials, warn) -> list[Cont
         if source is None:
             continue
         try:
-            for contact in eds.read_contacts(source):
+            for contact in eds.read_contacts(
+                source, warn=lambda message, name=info.name: warn(f"{name}: {message}")
+            ):
                 contacts[contact.uid] = contact
         except Exception as exc:
             warn(f"連絡先を読めません: {info.name}: {exc}")

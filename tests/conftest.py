@@ -220,42 +220,52 @@ class FakeECalClient:
         return (True, [FakeTaskComponent(data) for data in self.tasks])
 
 
+def _vcard_body(data: dict) -> str:
+    lines = [
+        "BEGIN:VCARD",
+        "VERSION:3.0",
+        f"UID:{data.get('UID', '')}",
+        f"FN:{data.get('FN', '')}",
+    ]
+    for key in ("TEL", "TEL-MOBILE", "TEL-HOME", "TEL-BUSINESS"):
+        if data.get(key):
+            lines.append(f"TEL:{data[key]}")
+    lines.append("END:VCARD")
+    return "\r\n".join(lines)
+
+
 class FakeContact:
+    """EDS 3.59.1 以降の `to_string()`（引数なし）。"""
+
     def __init__(self, data: dict):
         self.data = data
 
     def get_const(self, field: str):
         return self.data.get(field)
 
-    def to_string(self, version: int = 1) -> str:
-        lines = [
-            "BEGIN:VCARD",
-            "VERSION:3.0",
-            f"UID:{self.data.get('UID', '')}",
-            f"FN:{self.data.get('FN', '')}",
-        ]
-        for key in ("TEL", "TEL-MOBILE", "TEL-HOME", "TEL-BUSINESS"):
-            if self.data.get(key):
-                lines.append(f"TEL:{self.data[key]}")
-        lines.append("END:VCARD")
-        return "\r\n".join(lines)
+    def to_string(self) -> str:
+        return _vcard_body(self.data)
 
 
-class FakeContactFields:
-    UID = "UID"
-    FULL_NAME = "FN"
-    PHONE_PRIMARY = "TEL"
-    PHONE_MOBILE = "TEL-MOBILE"
-    PHONE_HOME = "TEL-HOME"
-    PHONE_BUSINESS = "TEL-BUSINESS"
+class FakeLegacyContact(FakeContact):
+    """EDS 3.58 以前の `to_string(version)`（引数必須）。"""
+
+    def to_string(self, version: int) -> str:
+        return _vcard_body(self.data)
+
+
+class FakeUnreadableContact(FakeContact):
+    def to_string(self, *args) -> str:
+        raise RuntimeError("vCard に変換できません")
 
 
 class FakeBookClient:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, contact_class=FakeContact):
         self.rows = rows if rows is not None else contact_rows()
+        self.contact_class = contact_class
 
     def get_contacts_sync(self, sexp, cancellable):
-        return (True, [FakeContact(row) for row in self.rows])
+        return (True, [self.contact_class(row) for row in self.rows])
 
     def get_contacts_uids_sync(self, sexp, cancellable):
         return [str(row.get("UID", "")) for row in self.rows]

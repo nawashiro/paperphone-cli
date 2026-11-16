@@ -1,9 +1,25 @@
 from __future__ import annotations
 
-from conftest import FakeCredentialStore, FakeRegistry, FakeSource
+from conftest import (
+    FakeBookClient,
+    FakeContact,
+    FakeCredentialStore,
+    FakeRegistry,
+    FakeSource,
+    FakeUnreadableContact,
+)
 
 from paperphone import cli, eds
 from paperphone.model import Contact
+
+
+class MixedBookClient(FakeBookClient):
+    def get_contacts_sync(self, sexp, cancellable):
+        return (
+            True,
+            [FakeUnreadableContact({})]
+            + [FakeContact(row) for row in self.rows],
+        )
 
 
 def patch_registry(monkeypatch, sources):
@@ -45,7 +61,9 @@ def test_contacts_list_filters_by_name_and_phone(monkeypatch, capsys):
         Contact("2", "Bea Ito", "+81 3 2222"),
     ]
     monkeypatch.setattr(cli.eds, "find_source", lambda registry, uid: object())
-    monkeypatch.setattr(cli.eds, "read_contacts", lambda source: contacts)
+    monkeypatch.setattr(
+        cli.eds, "read_contacts", lambda source, **kwargs: contacts
+    )
 
     assert cli.main(["contacts", "list", "--query", "aki"]) == 0
     out = capsys.readouterr().out
@@ -56,6 +74,22 @@ def test_contacts_list_filters_by_name_and_phone(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Bea Ito" in out
     assert "Aki Tanaka" not in out
+
+
+def test_contacts_list_skips_unreadable_contacts(monkeypatch, capsys):
+    patch_registry(
+        monkeypatch,
+        [FakeSource("book-1", "Book", {eds.SOURCE_ADDRESS_BOOK})],
+    )
+    monkeypatch.setattr(cli.eds, "find_source", lambda registry, uid: object())
+    monkeypatch.setattr(cli.eds, "book_client", lambda source: MixedBookClient())
+
+    assert cli.main(["contacts", "list"]) == 0
+    captured = capsys.readouterr()
+    assert "Book: 1 件の連絡先を読み出せませんでした" in captured.err
+    assert "Aki Tanaka" in captured.out
+    assert not any(line == "\t\t" for line in captured.out.splitlines())
+    assert "\t\t\n" not in captured.out
 
 
 def test_contacts_list_empty_result(monkeypatch, capsys):

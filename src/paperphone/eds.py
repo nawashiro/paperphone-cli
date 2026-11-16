@@ -385,28 +385,42 @@ def read_contacts(
     source,
     *,
     client_factory: Callable[[object], object] | None = None,
-    fields=None,
+    warn: Callable[[str], None] | None = None,
 ) -> list[Contact]:
     factory = client_factory or book_client
     client = factory(source)
     contacts = _out_list(client.get_contacts_sync(BOOK_QUERY_ALL, None))
     result: list[Contact] = []
+    unreadable = 0
     for contact in contacts:
-        uid, name, phone = _vcard_fields(contact)
+        uid, name, phone = _vcard_fields(_vcard_text(contact) or "")
+        if not (uid or name or phone):
+            unreadable += 1
+            continue
         result.append(Contact(uid=uid, name=name or uid, phone=phone))
+    if unreadable and warn is not None:
+        warn(f"{unreadable} 件の連絡先を読み出せませんでした")
     result.sort(key=lambda contact: (contact.name.casefold(), contact.uid))
     return result
 
 
-def _vcard_fields(contact) -> tuple[str, str, str]:
-    text = None
-    for version in (1, 0):
+def _vcard_text(contact) -> str | None:
+    for call in (
+        contact.to_string,
+        lambda: contact.to_string(1),
+        lambda: contact.to_string(0),
+    ):
         try:
-            text = contact.to_string(version)
-            break
+            text = call()
         except Exception:
             continue
-    if text is None:
+        if text is not None:
+            return str(text)
+    return None
+
+
+def _vcard_fields(text: str) -> tuple[str, str, str]:
+    if not text:
         return "", "", ""
     lines: list[str] = []
     for raw in str(text).replace("\r\n", "\n").split("\n"):

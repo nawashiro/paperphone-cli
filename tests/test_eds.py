@@ -3,13 +3,17 @@ from __future__ import annotations
 import datetime as dt
 from zoneinfo import ZoneInfo
 
+import pytest
 from conftest import (
     FakeBookClient,
-    FakeContactFields,
+    FakeContact,
     FakeCredentialStore,
     FakeECalClient,
+    FakeLegacyContact,
     FakeRegistry,
     FakeSource,
+    FakeUnreadableContact,
+    contact_rows,
 )
 
 from paperphone import eds
@@ -85,15 +89,39 @@ def test_read_tasks_filters_completed_and_sorts():
     assert tasks[2].due is None
 
 
-def test_read_contacts_extracts_uid_name_phone():
-    client = FakeBookClient()
+@pytest.mark.parametrize("contact_class", [FakeContact, FakeLegacyContact])
+def test_read_contacts_extracts_uid_name_phone(contact_class):
+    client = FakeBookClient(contact_class=contact_class)
     contacts = eds.read_contacts(
         source("book-uid", "Contacts", {eds.SOURCE_ADDRESS_BOOK}),
         client_factory=lambda source: client,
-        fields=FakeContactFields,
     )
     assert contacts[0] == Contact("contact-1", "Aki Tanaka", "+81 90 1234 5678")
     assert contacts[2].phone == ""
+
+
+def test_read_contacts_skips_unreadable_and_warns_once():
+    warnings: list[str] = []
+    client = FakeBookClient(contact_class=FakeUnreadableContact)
+    contacts = eds.read_contacts(
+        source("book-uid", "Contacts", {eds.SOURCE_ADDRESS_BOOK}),
+        client_factory=lambda source: client,
+        warn=warnings.append,
+    )
+    assert contacts == []
+    assert warnings == [f"{len(contact_rows())} 件の連絡先を読み出せませんでした"]
+
+
+def test_read_contacts_without_warn_writes_nothing(capsys):
+    client = FakeBookClient(contact_class=FakeUnreadableContact)
+    contacts = eds.read_contacts(
+        source("book-uid", "Contacts", {eds.SOURCE_ADDRESS_BOOK}),
+        client_factory=lambda source: client,
+    )
+    assert contacts == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
 
 
 def test_task_sort_puts_no_due_last():

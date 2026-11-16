@@ -141,7 +141,14 @@ def _contacts_list(args) -> int:
         if source is None:
             continue
         try:
-            contacts.extend(eds.read_contacts(source))
+            contacts.extend(
+                eds.read_contacts(
+                    source,
+                    warn=lambda message, name=info.name: print(
+                        f"paperphone: 警告: {name}: {message}", file=sys.stderr
+                    ),
+                )
+            )
         except Exception as exc:
             print(f"paperphone: 警告: {info.name}: {exc}", file=sys.stderr)
     if query:

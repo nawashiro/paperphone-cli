@@ -5,7 +5,13 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from conftest import FakeCredentialStore, FakeRegistry, FakeSource
+from conftest import (
+    FakeBookClient,
+    FakeCredentialStore,
+    FakeRegistry,
+    FakeSource,
+    FakeUnreadableContact,
+)
 from pypdf import PdfReader
 
 from paperphone import eds, generate, maps, weather
@@ -73,7 +79,9 @@ def patch_eds(monkeypatch, *, fail_calendar=False):
     )
     monkeypatch.setattr(eds, "read_tasks", lambda source: [Task("Pay rent", DATE)])
     monkeypatch.setattr(
-        eds, "read_contacts", lambda source: [Contact("contact-1", "Aki Tanaka", "123")]
+        eds,
+        "read_contacts",
+        lambda source, warn=None: [Contact("contact-1", "Aki Tanaka", "123")],
     )
 
 
@@ -133,6 +141,26 @@ notes = true
         lambda *args, **kwargs: pytest.fail("weather fetched while disabled"),
     )
     generate.generate(config, date=DATE, zone=ZONE, out=tmp_path / "book.pdf")
+
+
+def test_unreadable_contacts_are_warned(tmp_path, monkeypatch, capsys):
+    config_path = base_config(tmp_path)
+    config = load_config(config_path)
+    registry = FakeRegistry(
+        [FakeSource("book-uid", "Contacts", {eds.SOURCE_ADDRESS_BOOK})]
+    )
+    monkeypatch.setattr(
+        eds,
+        "book_client",
+        lambda source: FakeBookClient(contact_class=FakeUnreadableContact),
+    )
+    warn = generate.WarningCollector()
+    contacts = generate._selected_contacts(
+        config, registry, FakeCredentialStore(), warn
+    )
+    assert contacts == []
+    captured = capsys.readouterr()
+    assert "Contacts: 3 件の連絡先を読み出せませんでした" in captured.err
 
 
 def test_calendar_failure_is_a_warning(tmp_path, monkeypatch):
