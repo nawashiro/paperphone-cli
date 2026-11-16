@@ -1,0 +1,20 @@
+schema: spec-driven
+
+context: |
+  Language: japanese
+  All artifacts must be written in japanese.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Paper Phone is an Android app that prints a personal paper booklet. The user
+  selects sources (contacts, calendar, tasks, weather, maps, photos, notes, paper
+  apps) and the app renders them into a PDF for the Android printing framework.
+
+  - Kotlin, single module `app`, package `com.withgoogle.experiments.unplugged`
+  - Gradle 5.4.1 wrapper, Android Gradle Plugin 3.5.1, compileSdk/targetSdk 28, minSdk 26
+  - ktlint runs in the build (org.jlleitschuh.gradle.ktlint 8.2.0), so new Kotlin
+    code must pass ktlint
+  - `keys.properties` at the repo root supplies the Google Maps, Places, weather
+    API keys and the signing config; the build fails without it and the file is
+    never committed
+  - No test sources and no CI, so a change is verified by building the app and
+    running it on a device or emulator
