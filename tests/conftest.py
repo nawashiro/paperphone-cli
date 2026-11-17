@@ -363,6 +363,13 @@ class FakeDavBackend:
 
 
 @pytest.fixture
+def cache_home(tmp_path, monkeypatch) -> Path:
+    path = tmp_path / "cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(path))
+    return path
+
+
+@pytest.fixture
 def sample_config(tmp_path):
     path = tmp_path / "config.toml"
     path.write_text(

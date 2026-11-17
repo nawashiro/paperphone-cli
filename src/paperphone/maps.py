@@ -3,11 +3,12 @@ from __future__ import annotations
 import io
 import math
 from dataclasses import dataclass
+from functools import cache
 
 import httpx
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
-from . import __version__
+from . import __version__, paperapps, tilecache
 from .config import MapsConfig, PlaceConfig
 from .errors import RuntimeFailure
 
@@ -15,6 +16,12 @@ TILE_SIZE = 256
 MAP_PIXELS = 1024
 MIN_ZOOM = 12
 MAX_ZOOM = 17
+BACKGROUND_WHITEN = 0.08
+ROUTE_HALO_WIDTH = 14
+ROUTE_CORE_WIDTH = 6
+MARKER_DIAMETER = 40
+MARKER_LABELS = ("A", "B")
+MARKER_FONT_FILE = "varela_regular.otf"
 ATTRIBUTION = "© OpenStreetMap contributors"
 USER_AGENT = f"paperphone/{__version__} (+https://github.com/google/paper-phone)"
 
@@ -38,10 +45,7 @@ def lonlat_to_world(latitude: float, longitude: float, zoom: int) -> tuple[float
     scale = TILE_SIZE * (2**zoom)
     x = (longitude + 180.0) / 360.0 * scale
     sin_latitude = math.sin(math.radians(latitude))
-    y = (
-        0.5
-        - math.log((1 + sin_latitude) / (1 - sin_latitude)) / (4 * math.pi)
-    ) * scale
+    y = (0.5 - math.log((1 + sin_latitude) / (1 - sin_latitude)) / (4 * math.pi)) * scale
     return x, y
 
 
@@ -98,6 +102,48 @@ def _tile_url(template: str, zoom: int, x: int, y: int) -> str:
     return template.format(z=zoom, x=x, y=y)
 
 
+def _decode_tile(content: bytes) -> Image.Image:
+    with Image.open(io.BytesIO(content)) as tile:
+        return tile.convert("RGB")
+
+
+def _tile_image(http: httpx.Client, url: str) -> Image.Image:
+    cached = tilecache.read_tile(url)
+    if cached is not None and cached.is_fresh():
+        try:
+            return _decode_tile(cached.content)
+        except OSError:
+            pass
+    headers = {}
+    if cached is not None and cached.etag:
+        headers["If-None-Match"] = cached.etag
+    response = http.get(url, headers=headers)
+    if response.status_code == httpx.codes.NOT_MODIFIED:
+        if cached is not None:
+            try:
+                image = _decode_tile(cached.content)
+            except OSError:
+                pass
+            else:
+                tilecache.renew_tile(
+                    url,
+                    cached,
+                    etag=response.headers.get("ETag") or cached.etag,
+                    max_age=tilecache.freshness(response.headers),
+                )
+                return image
+        response = http.get(url)
+    response.raise_for_status()
+    content = response.content
+    image = _decode_tile(content)
+    max_age = tilecache.freshness(response.headers)
+    if max_age is not None:
+        tilecache.store_tile(
+            url, content, etag=response.headers.get("ETag"), max_age=max_age
+        )
+    return image
+
+
 def fetch_mosaic(
     config: MapsConfig,
     viewport: _Viewport,
@@ -117,10 +163,7 @@ def fetch_mosaic(
         for row in range(rows):
             for column in range(columns):
                 url = _tile_url(config.tile_url, viewport.zoom, x0 + column, y0 + row)
-                response = http.get(url)
-                response.raise_for_status()
-                with Image.open(io.BytesIO(response.content)) as tile:
-                    mosaic.paste(tile.convert("RGB"), (column * TILE_SIZE, row * TILE_SIZE))
+                mosaic.paste(_tile_image(http, url), (column * TILE_SIZE, row * TILE_SIZE))
     except (httpx.HTTPError, OSError) as exc:
         raise RuntimeFailure(f"地図タイルを取得できません: {exc}") from exc
     finally:
@@ -168,7 +211,9 @@ def decode_polyline(encoded: str, precision: int = 6) -> list[tuple[float, float
     return points
 
 
-def fetch_route(config: MapsConfig, *, client: httpx.Client | None = None) -> list[tuple[float, float]]:
+def fetch_route(
+    config: MapsConfig, *, client: httpx.Client | None = None
+) -> list[tuple[float, float]]:
     if not config.router_url:
         return []
     payload = {
@@ -201,21 +246,74 @@ def fetch_route(config: MapsConfig, *, client: httpx.Client | None = None) -> li
             http.close()
 
 
+def _at_map_scale(value: float, width: int) -> int:
+    return max(1, round(value * width / MAP_PIXELS))
+
+
+def lighten_background(image: Image.Image, amount: float = BACKGROUND_WHITEN) -> Image.Image:
+    gray = image.convert("L")
+    return Image.blend(gray, Image.new("L", gray.size, 255), amount)
+
+
+def _project(
+    latitude: float, longitude: float, viewport: _Viewport, image: Image.Image
+) -> tuple[float, float]:
+    x, y = lonlat_to_world(latitude, longitude, viewport.zoom)
+    return (
+        x - (viewport.center_x - image.width / 2),
+        y - (viewport.center_y - image.height / 2),
+    )
+
+
+def marker_radius(pixels: int = MAP_PIXELS) -> float:
+    return _at_map_scale(MARKER_DIAMETER, pixels) / 2
+
+
 def draw_route(image: Image.Image, points: list[tuple[float, float]], viewport: _Viewport) -> None:
     if not points:
         return
-    half = image.width / 2
-    origin_x = viewport.center_x - half
-    origin_y = viewport.center_y - half
-    pixels = [
-        (
-            lonlat_to_world(latitude, longitude, viewport.zoom)[0] - origin_x,
-            lonlat_to_world(latitude, longitude, viewport.zoom)[1] - origin_y,
-        )
-        for latitude, longitude in points
-    ]
+    pixels = [_project(latitude, longitude, viewport, image) for latitude, longitude in points]
     draw = ImageDraw.Draw(image)
-    draw.line(pixels, fill=(0, 0, 0), width=4, joint="curve")
+    draw.line(pixels, fill=255, width=_at_map_scale(ROUTE_HALO_WIDTH, image.width), joint="curve")
+    draw.line(pixels, fill=0, width=_at_map_scale(ROUTE_CORE_WIDTH, image.width), joint="curve")
+
+
+@cache
+def _marker_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    try:
+        return ImageFont.truetype(str(paperapps.asset_root() / "fonts" / MARKER_FONT_FILE), size)
+    except OSError:
+        try:
+            return ImageFont.load_default(size=size)
+        except TypeError:
+            return ImageFont.load_default()
+
+
+def draw_markers(
+    image: Image.Image,
+    viewport: _Viewport,
+    anchors: list[tuple[float, float]],
+) -> None:
+    radius = marker_radius(image.width)
+    font = _marker_font(max(8, round(radius * 1.2)))
+    draw = ImageDraw.Draw(image)
+    for label, (latitude, longitude) in zip(MARKER_LABELS, anchors, strict=True):
+        x, y = _project(latitude, longitude, viewport, image)
+        center_x = min(max(x, radius), image.width - radius)
+        center_y = min(max(y, radius), image.height - radius)
+        draw.ellipse(
+            (center_x - radius, center_y - radius, center_x + radius, center_y + radius),
+            fill=0,
+        )
+        draw.text((center_x, center_y), label, fill=255, font=font, anchor="mm")
+
+
+def _route_endpoints(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]] | None:
+    if len(points) < 2:
+        return None
+    return [points[0], points[-1]]
 
 
 def build_map_page(
@@ -231,14 +329,20 @@ def build_map_page(
         image = fetch_mosaic(config, viewport, client=client)
     except RuntimeFailure as exc:
         warn(str(exc))
+    if image is not None:
+        image = lighten_background(image)
     if image is not None and config.router_url:
         try:
             points = fetch_route(config, client=client)
-            draw_route(image, points, viewport)
         except RuntimeFailure as exc:
             warn(str(exc))
     if image is not None:
-        image = image.convert("L")
+        draw_route(image, points, viewport)
+        anchors = _route_endpoints(points) or [
+            (config.origin.latitude, config.origin.longitude),
+            (config.destination.latitude, config.destination.longitude),
+        ]
+        draw_markers(image, viewport, anchors)
     return MapPage(
         origin=config.origin,
         destination=config.destination,
