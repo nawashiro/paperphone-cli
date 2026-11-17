@@ -38,6 +38,11 @@ paperphone は GNOME Online Accounts が作った source を読み取り専用�
 - **WHEN** Nextcloud のカレンダー URL を `--kind caldav` で指定する
 - **THEN** source が登録され、`paperphone sources` に paperphone 管理のカレンダーとして現れ、設定に使う UID が表示される
 
+#### Scenario: ポートを省略した HTTPS を登録する
+
+- **WHEN** `https://` のコレクション URL をポート指定なしで `--kind caldav` に渡す
+- **THEN** source の認証ポートは443になり、登録直後の一覧取得が成功する
+
 #### Scenario: タスクリストを登録する
 
 - **WHEN** CalDAV のタスク用コレクション URL を `--kind tasks` で指定する

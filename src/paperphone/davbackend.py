@@ -62,7 +62,8 @@ class EdsDavBackend:
         source = eds.new_dav_source(uid, name, SOURCE_KIND[kind])
         eds.set_dav_url(source, url)
         parts = urlsplit(url)
-        eds.set_authentication(source, parts.hostname or "", user, parts.port)
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        eds.set_authentication(source, parts.hostname or "", user, port)
         eds.commit_source(self.registry, source)
         try:
             self.credentials.store_password(source, user, password)
